@@ -34,7 +34,7 @@ export function HowItWorks() {
 
   return (
     <section ref={section} id="how" aria-label="How it works" className="scroll-mt-28 overflow-hidden bg-void py-16 min-[769px]:motion-safe:flex min-[769px]:motion-safe:min-h-svh min-[769px]:motion-safe:items-center">
-      <div ref={track} data-lenis-prevent-horizontal className="flex w-full snap-x snap-mandatory gap-6 overflow-x-auto px-[clamp(1rem,5vw,5rem)] min-[769px]:motion-safe:overflow-visible">
+      <div ref={track} data-lenis-prevent-horizontal className="flex w-full touch-auto snap-x snap-mandatory gap-6 overflow-x-auto px-[clamp(1rem,5vw,5rem)] min-[769px]:motion-safe:overflow-visible">
         <article className="flex min-h-[26rem] w-[min(78vw,36rem)] shrink-0 snap-center flex-col items-start justify-center gap-5 rounded-2xl border border-ink/15 bg-panel p-[clamp(1.5rem,5vw,4rem)] min-[769px]:w-[58vw]">
           <span className="font-mono text-sm tracking-widest text-neon">01</span>
           <svg className="size-28 text-neon" viewBox="0 0 120 120" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

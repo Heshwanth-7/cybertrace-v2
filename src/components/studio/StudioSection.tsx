@@ -218,6 +218,8 @@ export function StudioSection() {
     };
   }, [select, session]);
 
+  const cameraUnavailable = !navigator.mediaDevices?.getUserMedia;
+
   return (
     <section id="studio" aria-labelledby="studio-title" className="scroll-mt-28 py-16">
       <h2 id="studio-title" className="mx-auto mb-6 w-[min(92vw,1400px)] text-4xl font-bold tracking-tight">Studio</h2>
@@ -231,11 +233,13 @@ export function StudioSection() {
         )}
         {status !== "running" && (
           <div className="relative grid justify-items-center gap-1 rounded-xl bg-panel/90 px-3 py-2 text-center sm:gap-2 sm:px-6 sm:py-4">
-            <MagneticButton type="button" disabled={status === "loading"} onClick={() => void start()}>
+            <MagneticButton type="button" disabled={cameraUnavailable || status === "loading"} onClick={() => void start()}>
               {error ? "Retry camera" : "Enable camera"}
             </MagneticButton>
             <p role="status" className="max-w-xs font-mono text-xs text-neon">
-              {error ?? (status === "loading" ? "Starting camera and hand tracking…" : "Camera is off")}
+              {cameraUnavailable
+                ? "The camera needs HTTPS or localhost in a browser with camera support."
+                : error ?? (status === "loading" ? "Starting camera and hand tracking…" : "Camera is off")}
             </p>
             <p className="text-xs text-dim">Video never leaves your device.</p>
           </div>

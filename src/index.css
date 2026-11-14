@@ -212,6 +212,12 @@ html.lenis body {
   }
 }
 
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--color-neon);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
