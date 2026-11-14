@@ -10,6 +10,7 @@ import { Preloader } from "./components/layout/Preloader";
 import { Hero } from "./components/sections/Hero";
 import { HowItWorks } from "./components/sections/HowItWorks";
 import { Marquee } from "./components/sections/Marquee";
+import { StudioSection } from "./components/studio/StudioSection";
 import { useLenis } from "./hooks/useLenis";
 
 function App() {
@@ -38,9 +39,7 @@ function App() {
           <Hero ready={ready} />
           <Marquee />
           <HowItWorks />
-          <section id="studio" className="scroll-mt-28 px-[clamp(1rem,5vw,5rem)] py-12">
-            <h2 className="text-2xl font-bold">Studio</h2>
-          </section>
+          <StudioSection />
           <section id="gallery" className="scroll-mt-28 px-[clamp(1rem,5vw,5rem)] py-12">
             <h2 className="text-2xl font-bold">Gallery</h2>
           </section>
