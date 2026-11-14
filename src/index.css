@@ -128,3 +128,95 @@
     @apply font-sans;
     }
 }
+
+@theme {
+  --color-void: #08090b;
+  --color-panel: #101216;
+  --color-ink: #ecebe6;
+  --color-dim: #8b8f98;
+  --color-neon: #6ff3f0;
+  --color-hot: #ff5a7a;
+  --font-display: "Space Grotesk";
+  --font-serif: "Instrument Serif";
+  --font-mono: "Share Tech Mono";
+}
+
+.dark {
+  --background: var(--color-void);
+  --foreground: var(--color-ink);
+  --card: var(--color-panel);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-panel);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-neon);
+  --primary-foreground: var(--color-void);
+  --border: rgba(255, 255, 255, 0.12);
+  --ring: var(--color-neon);
+}
+
+@layer base {
+  body {
+    @apply bg-void text-ink font-display;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    @apply bg-neon text-void;
+  }
+}
+
+html.lenis-smooth {
+  scroll-behavior: auto !important;
+}
+
+html.lenis,
+html.lenis body {
+  height: auto;
+}
+
+.lenis:not(.lenis-autoToggle).lenis-stopped {
+  overflow: clip;
+}
+
+.lenis [data-lenis-prevent],
+.lenis [data-lenis-prevent-wheel],
+.lenis [data-lenis-prevent-touch],
+.lenis [data-lenis-prevent-vertical],
+.lenis [data-lenis-prevent-horizontal] {
+  overscroll-behavior: contain;
+}
+
+.lenis.lenis-smooth iframe {
+  pointer-events: none;
+}
+
+.lenis.lenis-autoToggle {
+  transition-property: overflow;
+  transition-duration: 1ms;
+  transition-behavior: allow-discrete;
+}
+
+@layer utilities {
+  .grain {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0.06;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  }
+
+  .text-outline {
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(255, 255, 255, 0.25);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
