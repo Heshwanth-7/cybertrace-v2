@@ -7,6 +7,7 @@ import { Footer } from "./components/layout/Footer";
 import { Grain } from "./components/layout/Grain";
 import { Nav } from "./components/layout/Nav";
 import { Preloader } from "./components/layout/Preloader";
+import { Gallery } from "./components/sections/Gallery";
 import { Hero } from "./components/sections/Hero";
 import { HowItWorks } from "./components/sections/HowItWorks";
 import { Marquee } from "./components/sections/Marquee";
@@ -40,9 +41,7 @@ function App() {
           <Marquee />
           <HowItWorks />
           <StudioSection />
-          <section id="gallery" className="scroll-mt-28 px-[clamp(1rem,5vw,5rem)] py-12">
-            <h2 className="text-2xl font-bold">Gallery</h2>
-          </section>
+          <Gallery />
         </main>
         <Footer />
       </div>

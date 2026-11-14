@@ -1,7 +1,8 @@
-import { Download, Eraser, Image, Redo2, Trash2, Undo2 } from "lucide-react";
-import { useEffect, type ReactNode, type Ref } from "react";
+import { Download, Eraser, Image, Redo2, Save, Trash2, Undo2 } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
 
 import { useStudioStore } from "@/store/studio";
+import { useTracesStore } from "@/store/traces";
 
 import { Button } from "../ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/tooltip";
@@ -52,6 +53,8 @@ interface ToolbarProps {
 export function Toolbar({ toolbarRef, onBeforeAction, onExport }: ToolbarProps) {
   const color = useStudioStore((state) => state.color);
   const eraser = useStudioStore((state) => state.eraser);
+  const panel = useRef<HTMLDivElement>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     function handleHistory(event: KeyboardEvent) {
@@ -76,9 +79,51 @@ export function Toolbar({ toolbarRef, onBeforeAction, onExport }: ToolbarProps) 
   };
   const { setColor, toggleEraser, undo, redo, clear } = useStudioStore.getState();
 
+  function saveTrace() {
+    const frame = panel.current?.closest(".frame");
+    const video = frame?.querySelector("video");
+    const drawing = frame?.querySelector<HTMLCanvasElement>("#strokes");
+    if (!video?.videoWidth || !video.videoHeight || video.readyState < 2 || !drawing?.width) {
+      setSaveError("Wait for the camera to be ready before saving.");
+      return;
+    }
+
+    const thumbnail = document.createElement("canvas");
+    const width = thumbnail.width = 320;
+    const height = thumbnail.height = 180;
+    const ctx = thumbnail.getContext("2d");
+    if (!ctx) {
+      setSaveError("Could not create a trace thumbnail.");
+      return;
+    }
+
+    try {
+      // Use the same centered cover geometry and mirror as the studio preview.
+      const scale = Math.max(width / video.videoWidth, height / video.videoHeight);
+      const cameraWidth = video.videoWidth * scale;
+      const cameraHeight = video.videoHeight * scale;
+      ctx.save();
+      ctx.translate(width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, (width - cameraWidth) / 2, (height - cameraHeight) / 2, cameraWidth, cameraHeight);
+      ctx.restore();
+      ctx.drawImage(drawing, 0, 0, width, height);
+
+      const thumb = thumbnail.toDataURL("image/jpeg", 0.75);
+      useTracesStore.getState().saveCurrent(useStudioStore.getState().strokes, thumb);
+      setSaveError(null);
+    } catch {
+      setSaveError("Could not save the trace.");
+    }
+  }
+
   return (
     <TooltipProvider delayDuration={200}>
-      <div ref={toolbarRef} role="group" aria-label="Drawing tools" className="absolute inset-x-0 bottom-1 z-10 mx-auto flex w-max max-w-[calc(100%-0.5rem)] flex-wrap justify-center gap-0.5 rounded-xl border border-neon/25 bg-panel/70 p-0.5 backdrop-blur-md sm:bottom-4 sm:gap-1 sm:p-1">
+      <div ref={(element) => {
+        panel.current = element;
+        if (typeof toolbarRef === "function") return toolbarRef(element);
+        if (toolbarRef) toolbarRef.current = element;
+      }} role="group" aria-label="Drawing tools" className="absolute inset-x-0 bottom-1 z-10 mx-auto flex w-max max-w-[calc(100%-0.5rem)] flex-wrap justify-center gap-0.5 rounded-xl border border-neon/25 bg-panel/70 p-0.5 backdrop-blur-md sm:bottom-4 sm:gap-1 sm:p-1">
         {swatches.map((swatch) => (
           <Tool key={swatch.color} label={swatch.name} pressed={!eraser && color === swatch.color} onClick={run(() => setColor(swatch.color))}>
             <span className={"size-5 rounded-full " + swatch.fill} />
@@ -90,6 +135,8 @@ export function Toolbar({ toolbarRef, onBeforeAction, onExport }: ToolbarProps) 
         <Tool label="Clear drawing" onClick={run(clear)}><Trash2 /></Tool>
         <Tool label="Export camera and strokes" onClick={run(() => onExport(false))}><Download /></Tool>
         <Tool label="Export strokes only" onClick={run(() => onExport(true))}><Image /></Tool>
+        <Tool label="Save trace" onClick={run(saveTrace)}><Save /></Tool>
+        {saveError && <p role="alert" className="absolute inset-x-0 bottom-full mb-2 rounded bg-panel p-2 text-center font-mono text-xs text-hot">{saveError}</p>}
       </div>
     </TooltipProvider>
   );
