@@ -1,12 +1,15 @@
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import { useDwellSelect } from "@/hooks/useDwellSelect";
 import { useHandTracker, type HandFrame } from "@/hooks/useHandTracker";
+import { exportPng } from "@/lib/draw/export";
 import { drawSegment, redrawAll, strokeHitsPoint } from "@/lib/draw/renderer";
 import { createGestureState, createOneEuro, toScreen, updateGesture } from "@/lib/hand/hand";
 import type { Point } from "@/lib/hand/types";
 import { useStudioStore, type Stroke } from "@/store/studio";
 
 import { MagneticButton } from "../ui/MagneticButton";
+import { Toolbar } from "./Toolbar";
 
 type Mode = "HOVERING" | "DRAWING" | "ERASING";
 type ActiveStroke = Stroke & { points: Point[] };
@@ -47,13 +50,19 @@ function resetHand(session: DrawingSession) {
   session.live?.clearRect(0, 0, session.width, session.height);
 }
 
-function renderFrame(session: DrawingSession, frame: HandFrame) {
+function renderFrame(
+  session: DrawingSession,
+  frame: HandFrame,
+  select: (point: Point | null) => ReturnType<ReturnType<typeof useDwellSelect>>,
+  frameElement: HTMLDivElement | null,
+) {
   const { width, height, strokes, live } = session;
   if (!strokes || !live || !width || !height) return;
 
   const { landmarks, videoWidth, videoHeight, timestamp } = frame;
   const tip = landmarks?.[8];
   if (!landmarks || !tip) {
+    select(null);
     resetHand(session);
     return;
   }
@@ -66,10 +75,11 @@ function renderFrame(session: DrawingSession, frame: HandFrame) {
   const { color, eraser } = useStudioStore.getState();
   const inside = x >= 0 && x <= width && y >= 0 && y <= height;
   const erasing = session.gesture.erasing || (eraser && session.gesture.drawing);
-  const drawing = inside && session.gesture.drawing && !erasing;
+  const { overToolbar, selection } = select(inside ? { x, y } : null);
+  const drawing = inside && !overToolbar && session.gesture.drawing && !erasing;
   if (!drawing) finishStroke(session);
 
-  if (inside && erasing) {
+  if (inside && !overToolbar && erasing) {
     useStudioStore.setState((state) => {
       const remaining = state.strokes.filter((stroke) => !strokeHitsPoint(stroke, x, y, 28, width, height));
       if (remaining.length === state.strokes.length) return state;
@@ -85,9 +95,9 @@ function renderFrame(session: DrawingSession, frame: HandFrame) {
     }
   }
 
-  session.hud = { mode: erasing ? "ERASING" : drawing ? "DRAWING" : "HOVERING", hand: true };
+  session.hud = { mode: erasing && !overToolbar ? "ERASING" : drawing ? "DRAWING" : "HOVERING", hand: true };
   live.clearRect(0, 0, width, height);
-  live.strokeStyle = erasing ? session.hot : session.neon;
+  live.strokeStyle = erasing && !overToolbar ? session.hot : session.neon;
   live.fillStyle = live.strokeStyle;
   live.lineWidth = 2;
   live.beginPath();
@@ -96,16 +106,49 @@ function renderFrame(session: DrawingSession, frame: HandFrame) {
   live.beginPath();
   live.arc(x, y, 2.5, 0, Math.PI * 2);
   live.fill();
+
+  if (selection && frameElement) {
+    const bounds = frameElement.getBoundingClientRect();
+    const rect = selection.targetRect;
+    const centerX = rect.left - bounds.left - frameElement.clientLeft + rect.width / 2;
+    const centerY = rect.top - bounds.top - frameElement.clientTop + rect.height / 2;
+    live.strokeStyle = session.neon;
+    live.beginPath();
+    live.arc(centerX, centerY, Math.min(rect.width, rect.height) / 2 - 3, -Math.PI / 2, selection.progress * Math.PI * 2 - Math.PI / 2);
+    live.stroke();
+  }
 }
 
 export function StudioSection() {
   const frame = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
+  const toolbar = useRef<HTMLDivElement>(null);
+  const select = useDwellSelect();
+  const [exportError, setExportError] = useState<string | null>(null);
   const strokesCanvas = useRef<HTMLCanvasElement>(null);
   const liveCanvas = useRef<HTMLCanvasElement>(null);
   const sessionRef = useRef<DrawingSession | null>(null);
   const session = sessionRef.current ??= createDrawingSession();
-  const { status, fps, error, start } = useHandTracker(video, (sample) => renderFrame(session, sample));
+  const { status, fps, error, start } = useHandTracker(video, (sample) => {
+    renderFrame(session, sample, (point) => select(point, frame.current, toolbar.current, sample.timestamp), frame.current);
+  });
+  const prepareTool = useCallback(() => finishStroke(session), [session]);
+
+  async function download(strokesOnly: boolean) {
+    const element = video.current;
+    if (!element) return;
+
+    setExportError(null);
+    try {
+      await exportPng(element, useStudioStore.getState().strokes, {
+        strokesOnly,
+        frameWidth: session.width,
+        frameHeight: session.height,
+      });
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "Could not export the drawing.");
+    }
+  }
   const hud = useRef<HTMLDivElement>(null);
 
   // The tracker publishes a fresh status/FPS sample at most once per second.
@@ -158,7 +201,10 @@ export function StudioSection() {
     });
 
     const onVisibilityChange = () => {
-      if (document.hidden) resetHand(session);
+      if (document.hidden) {
+        select(null, null, null, 0);
+        resetHand(session);
+      }
     };
     observer.observe(element);
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -170,7 +216,7 @@ export function StudioSection() {
       session.strokes = null;
       session.live = null;
     };
-  }, [session]);
+  }, [select, session]);
 
   return (
     <section id="studio" aria-labelledby="studio-title" className="scroll-mt-28 py-16">
@@ -178,8 +224,11 @@ export function StudioSection() {
       <div ref={frame} className="frame relative isolate mx-auto grid aspect-video w-[min(92vw,1400px)] place-items-center overflow-hidden rounded-3xl border border-neon/25 bg-panel">
         <video ref={video} muted playsInline className="pointer-events-none absolute inset-0 size-full -scale-x-100 object-cover" />
         <canvas ref={strokesCanvas} id="strokes" className="pointer-events-none absolute inset-0 size-full" />
-        <canvas ref={liveCanvas} id="live" aria-hidden="true" className="pointer-events-none absolute inset-0 size-full text-hot" />
+        <canvas ref={liveCanvas} id="live" aria-hidden="true" className="pointer-events-none absolute z-20 inset-0 size-full text-hot" />
         <div ref={hud} className="pointer-events-none absolute top-2 left-3 font-mono text-[0.65rem] text-neon drop-shadow-sm sm:top-4 sm:left-4 sm:text-xs" />
+        {status === "running" && (
+          <Toolbar toolbarRef={toolbar} onBeforeAction={prepareTool} onExport={(strokesOnly) => void download(strokesOnly)} />
+        )}
         {status !== "running" && (
           <div className="relative grid justify-items-center gap-1 rounded-xl bg-panel/90 px-3 py-2 text-center sm:gap-2 sm:px-6 sm:py-4">
             <MagneticButton type="button" disabled={status === "loading"} onClick={() => void start()}>
@@ -192,6 +241,7 @@ export function StudioSection() {
           </div>
         )}
       </div>
+      {exportError && <p role="alert" className="mx-auto mt-2 w-[min(92vw,1400px)] font-mono text-xs text-hot">{exportError}</p>}
     </section>
   );
 }
