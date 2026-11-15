@@ -6,24 +6,21 @@ import { exportPng } from "@/lib/draw/export";
 import { drawStroke, redrawAll, strokeHitsPoint } from "@/lib/draw/renderer";
 import { createGestureState, createOneEuro, cursorPoint, toScreen, updateGesture } from "@/lib/hand/hand";
 import type { Point } from "@/lib/hand/types";
-import { useStudioStore, type Stroke, type StrokePoint } from "@/store/studio";
+import { useStudioStore, type Stroke } from "@/store/studio";
 
 import { MagneticButton } from "../ui/MagneticButton";
 import { Toolbar } from "./Toolbar";
 
 type Mode = "HOVERING" | "DRAWING" | "ERASING";
-type ActiveStroke = Stroke & { points: StrokePoint[] };
+type ActiveStroke = Stroke & { points: Point[] };
 
-/** Speed in px/ms at which the line is about 37% of the way from thick to thin. */
-const SPEED_SCALE = 0.9;
-const MIN_PRESSURE = 0.18;
-/** Smoothing for speed and pressure, from 0 (frozen) to 1 (no smoothing). */
-const SPEED_EASE = 0.3;
-const PRESSURE_EASE = 0.25;
 /** Largest believable move in one frame, as a fraction of the longer side. */
 const MAX_JUMP = 0.3;
 /** Points dropped at the end of a stroke, recorded while the fingers were opening. */
-const RELEASE_TRIM = 2;
+const RELEASE_TRIM = 3;
+/** A final step longer than this fraction of the longer side is a flick as the hand leaves. */
+const FLICK_STEP = 0.04;
+const MAX_FLICK_POINTS = 6;
 /** Strokes shorter than this are accidental taps and are discarded. */
 const MIN_POINTS = 4;
 const MIN_LENGTH_PX = 12;
@@ -39,9 +36,6 @@ function createDrawingSession() {
     gesture: createGestureState(),
     smoothX: createOneEuro(1.5, 0.03),
     smoothY: createOneEuro(1.5, 0.03),
-    lastTime: 0,
-    speed: 0,
-    pressure: 1,
     neon: "",
     hot: "",
     hud: idleHud,
@@ -56,8 +50,13 @@ function finishStroke(session: DrawingSession) {
 
   session.current = null;
   if (stroke.points.length > RELEASE_TRIM + 3) stroke.points.length -= RELEASE_TRIM;
-  session.speed = 0;
-  session.pressure = 1;
+  const flick = FLICK_STEP * Math.max(session.width, session.height);
+  for (let tail = 0; tail < MAX_FLICK_POINTS && stroke.points.length > MIN_POINTS; tail++) {
+    const previous = stroke.points.at(-2)!;
+    const end = stroke.points.at(-1)!;
+    if (Math.hypot((end.x - previous.x) * session.width, (end.y - previous.y) * session.height) <= flick) break;
+    stroke.points.pop();
+  }
 
   let length = 0;
   for (let index = 1; index < stroke.points.length; index++) {
@@ -122,25 +121,15 @@ function renderFrame(
     const stroke = session.current ??= { id: crypto.randomUUID(), color, width: 6, points: [] };
     const last = stroke.points.at(-1);
     const moved = last ? Math.hypot(x - last.x * width, y - last.y * height) : 0;
-    const elapsed = timestamp - session.lastTime;
 
     if (last && moved > MAX_JUMP * Math.max(width, height)) {
       // A tracking glitch, so end this stroke instead of drawing a long line.
       finishStroke(session);
-    } else {
-      if (last && elapsed > 0) {
-        // Slow movement gives a thick line and fast movement a thin one.
-        session.speed += SPEED_EASE * (moved / elapsed - session.speed);
-        const target = MIN_PRESSURE + (1 - MIN_PRESSURE) * Math.exp(-session.speed / SPEED_SCALE);
-        session.pressure += PRESSURE_EASE * (target - session.pressure);
-      }
-      if (!last || moved >= 2) {
-        stroke.points.push({ x: x / width, y: y / height, p: session.pressure });
-      }
+    } else if (!last || moved >= 2) {
+      stroke.points.push({ x: x / width, y: y / height });
     }
   }
 
-  session.lastTime = timestamp;
   session.hud = { mode: erasing && !overToolbar ? "ERASING" : drawing ? "DRAWING" : "HOVERING", hand: true };
   live.clearRect(0, 0, width, height);
   if (session.current) drawStroke(live, session.current, width, height, false);

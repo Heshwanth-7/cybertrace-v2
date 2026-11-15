@@ -2,20 +2,22 @@ import { getStroke } from "perfect-freehand";
 
 import type { Stroke } from "../../store/studio";
 
-/** Pressure used when a saved stroke has no pressure data. */
-const DEFAULT_PRESSURE = 0.5;
+/** Glow radius in pixels around finished strokes. 0 turns the glow off. */
+const GLOW_BLUR = 0;
 
-function outlinePath(stroke: Stroke, w: number, h: number, size: number, isFinished: boolean): Path2D | null {
-  const points = stroke.points.map(({ x, y, p }) => [x * w, y * h, p ?? DEFAULT_PRESSURE]);
-  const hasPressure = stroke.points.some((point) => point.p !== undefined);
+/** Line width in pixels. Every stroke uses it, whatever the drawing speed. */
+const STROKE_SIZE = 8;
+
+function outlinePath(stroke: Stroke, w: number, h: number, isFinished: boolean): Path2D | null {
+  const points = stroke.points.map(({ x, y }) => [x * w, y * h]);
   const outline = getStroke(points, {
-    size,
-    thinning: hasPressure ? 0.7 : 0.6,
+    size: STROKE_SIZE,
+    thinning: 0,
     smoothing: 0.6,
     streamline: 0.5,
-    simulatePressure: !hasPressure,
-    start: { taper: 6 },
-    end: { taper: 10 },
+    simulatePressure: false,
+    start: { taper: 0 },
+    end: { taper: 0 },
     last: isFinished,
   });
   const first = outline[0];
@@ -40,21 +42,16 @@ export function drawStroke(
   h: number,
   isFinished: boolean,
 ): void {
-  const body = outlinePath(stroke, w, h, 8, isFinished);
+  const body = outlinePath(stroke, w, h, isFinished);
   if (!body) return;
 
   ctx.save();
   ctx.fillStyle = stroke.color;
-  if (isFinished) {
-    // Two glow passes keep the colour of the stroke: a wide soft halo and a tight one.
+  if (isFinished && GLOW_BLUR > 0) {
     ctx.shadowColor = stroke.color;
-    ctx.shadowBlur = 16;
-    ctx.fill(body);
-    ctx.shadowBlur = 5;
-    ctx.fill(body);
-  } else {
-    ctx.fill(body);
+    ctx.shadowBlur = GLOW_BLUR;
   }
+  ctx.fill(body);
   ctx.restore();
 }
 

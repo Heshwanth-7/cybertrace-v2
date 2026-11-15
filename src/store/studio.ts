@@ -2,17 +2,12 @@ import { create } from "zustand";
 
 import type { Point } from "../lib/hand/types";
 
-/** A normalized point with an optional pen pressure from 0 (thin) to 1 (thick). */
-export interface StrokePoint extends Point {
-  p?: number;
-}
-
 export interface Stroke {
   id: string;
   color: string;
   width: number;
   /** Points normalized to the drawing area's width and height. */
-  points: readonly StrokePoint[];
+  points: readonly Point[];
 }
 
 interface StudioState {
@@ -37,10 +32,9 @@ export const useStudioStore = create<StudioState>()((set) => ({
   redoStack: [],
 
   addStroke: (stroke) => {
-    const points = stroke.points.map(({ x, y, p }) => ({
+    const points = stroke.points.map(({ x, y }) => ({
       x: Math.min(1, Math.max(0, x)),
       y: Math.min(1, Math.max(0, y)),
-      ...(p === undefined ? {} : { p }),
     }));
 
     set((state) => ({
