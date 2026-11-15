@@ -4,7 +4,7 @@ import { useDwellSelect } from "@/hooks/useDwellSelect";
 import { useHandTracker, type HandFrame } from "@/hooks/useHandTracker";
 import { exportPng } from "@/lib/draw/export";
 import { drawStroke, redrawAll, strokeHitsPoint } from "@/lib/draw/renderer";
-import { createGestureState, createOneEuro, expandReach, pinchPoint, toScreen, updateGesture } from "@/lib/hand/hand";
+import { createGestureState, createOneEuro, cursorPoint, toScreen, updateGesture } from "@/lib/hand/hand";
 import type { Point } from "@/lib/hand/types";
 import { useStudioStore, type Stroke, type StrokePoint } from "@/store/studio";
 
@@ -14,8 +14,6 @@ import { Toolbar } from "./Toolbar";
 type Mode = "HOVERING" | "DRAWING" | "ERASING";
 type ActiveStroke = Stroke & { points: StrokePoint[] };
 
-/** Fraction of the camera view that maps to the whole drawing area. */
-const REACH = 0.85;
 /** Speed in px/ms at which the line is about 37% of the way from thick to thin. */
 const SPEED_SCALE = 0.9;
 const MIN_PRESSURE = 0.18;
@@ -26,6 +24,9 @@ const PRESSURE_EASE = 0.25;
 const MAX_JUMP = 0.3;
 /** Points dropped at the end of a stroke, recorded while the fingers were opening. */
 const RELEASE_TRIM = 2;
+/** Strokes shorter than this are accidental taps and are discarded. */
+const MIN_POINTS = 4;
+const MIN_LENGTH_PX = 12;
 const idleHud = { mode: "HOVERING" as Mode, hand: false };
 
 function createDrawingSession() {
@@ -57,6 +58,17 @@ function finishStroke(session: DrawingSession) {
   if (stroke.points.length > RELEASE_TRIM + 3) stroke.points.length -= RELEASE_TRIM;
   session.speed = 0;
   session.pressure = 1;
+
+  let length = 0;
+  for (let index = 1; index < stroke.points.length; index++) {
+    const a = stroke.points[index - 1]!;
+    const b = stroke.points[index]!;
+    length += Math.hypot((b.x - a.x) * session.width, (b.y - a.y) * session.height);
+  }
+  if (stroke.points.length < MIN_POINTS || length < MIN_LENGTH_PX) {
+    session.live?.clearRect(0, 0, session.width, session.height);
+    return;
+  }
   useStudioStore.getState().addStroke(stroke);
   session.live?.clearRect(0, 0, session.width, session.height);
 }
@@ -87,12 +99,7 @@ function renderFrame(
     return;
   }
 
-  const mapped = expandReach(
-    toScreen(pinchPoint(landmarks), videoWidth, videoHeight, width, height),
-    width,
-    height,
-    REACH,
-  );
+  const mapped = toScreen(cursorPoint(landmarks, videoWidth / videoHeight), videoWidth, videoHeight, width, height);
   const x = session.smoothX.filter(mapped.x, timestamp);
   const y = session.smoothY.filter(mapped.y, timestamp);
   session.gesture = updateGesture(session.gesture, landmarks, videoWidth / videoHeight);

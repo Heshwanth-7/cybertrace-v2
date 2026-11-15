@@ -104,29 +104,27 @@ export function toScreen(lm: Point, videoW: number, videoH: number, boxW: number
   return { x: mirroredX * width - cropX, y: lm.y * height - cropY };
 }
 
-/**
- * Returns the midpoint between the thumb and index tips.
- * It moves far less than the index tip while the fingers close or open,
- * which removes the hooks at the start and end of strokes.
- */
-export function pinchPoint(lm: readonly Point[]): Point {
-  const thumb = lm[4]!;
-  const index = lm[8]!;
-  return { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 };
-}
+/** Thumb-to-index ratio above which the cursor sits exactly on the index tip. */
+const CURSOR_OPEN = 0.6;
+/** Thumb-to-index ratio below which the cursor sits at the pinch midpoint. */
+const CURSOR_CLOSED = 0.25;
 
 /**
- * Stretches the central part of the screen position to the whole drawing area,
- * so the edges can be reached without leaving the camera view.
- * @param point Position in box pixels.
- * @param boxW Display box width.
- * @param boxH Display box height.
- * @param reach Fraction of the box that maps to the full area, from 0 to 1.
+ * Returns the cursor position: the index tip while the hand is open,
+ * blending smoothly to the thumb-index midpoint as the fingers close.
+ * The blend keeps the pointer on the fingertip and avoids a jump when a pinch starts.
+ * @param lm Normalized hand landmarks.
+ * @param aspect Video width divided by video height.
  */
-export function expandReach(point: Point, boxW: number, boxH: number, reach: number): Point {
-  const stretch = (value: number, size: number) =>
-    Math.min(size, Math.max(0, size / 2 + (value - size / 2) / reach));
-  return { x: stretch(point.x, boxW), y: stretch(point.y, boxH) };
+export function cursorPoint(lm: readonly Point[], aspect: number): Point {
+  const thumb = lm[4]!;
+  const index = lm[8]!;
+  const ratio = pinchRatio(lm, aspect, 4, 8);
+  const closed = Number.isFinite(ratio)
+    ? Math.min(1, Math.max(0, (CURSOR_OPEN - ratio) / (CURSOR_OPEN - CURSOR_CLOSED)))
+    : 0;
+  const weight = closed * 0.5;
+  return { x: index.x + (thumb.x - index.x) * weight, y: index.y + (thumb.y - index.y) * weight };
 }
 
 /**

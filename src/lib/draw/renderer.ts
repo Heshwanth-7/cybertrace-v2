@@ -10,12 +10,12 @@ function outlinePath(stroke: Stroke, w: number, h: number, size: number, isFinis
   const hasPressure = stroke.points.some((point) => point.p !== undefined);
   const outline = getStroke(points, {
     size,
-    thinning: hasPressure ? 0.75 : 0.6,
+    thinning: hasPressure ? 0.7 : 0.6,
     smoothing: 0.6,
     streamline: 0.5,
     simulatePressure: !hasPressure,
-    start: { taper: 10 },
-    end: { taper: 24 },
+    start: { taper: 6 },
+    end: { taper: 10 },
     last: isFinished,
   });
   const first = outline[0];
@@ -40,28 +40,18 @@ export function drawStroke(
   h: number,
   isFinished: boolean,
 ): void {
-  const body = outlinePath(stroke, w, h, 14, isFinished);
+  const body = outlinePath(stroke, w, h, 8, isFinished);
   if (!body) return;
 
   ctx.save();
   ctx.fillStyle = stroke.color;
   if (isFinished) {
-    // Wide halo first, so thick and thin parts both glow.
-    ctx.shadowBlur = 22;
+    // Two glow passes keep the colour of the stroke: a wide soft halo and a tight one.
     ctx.shadowColor = stroke.color;
+    ctx.shadowBlur = 16;
     ctx.fill(body);
-    ctx.shadowBlur = 8;
+    ctx.shadowBlur = 5;
     ctx.fill(body);
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = "transparent";
-
-    // Bright core on top gives the line depth and keeps hairlines visible.
-    const core = outlinePath(stroke, w, h, 5, true);
-    if (core) {
-      ctx.globalAlpha = 0.7;
-      ctx.fillStyle = "white";
-      ctx.fill(core);
-    }
   } else {
     ctx.fill(body);
   }
