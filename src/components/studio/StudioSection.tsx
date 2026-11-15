@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useDwellSelect } from "@/hooks/useDwellSelect";
 import { useHandTracker, type HandFrame } from "@/hooks/useHandTracker";
 import { exportPng } from "@/lib/draw/export";
-import { drawSegment, redrawAll, strokeHitsPoint } from "@/lib/draw/renderer";
+import { drawStroke, redrawAll, strokeHitsPoint } from "@/lib/draw/renderer";
 import { createGestureState, createOneEuro, toScreen, updateGesture } from "@/lib/hand/hand";
 import type { Point } from "@/lib/hand/types";
 import { useStudioStore, type Stroke } from "@/store/studio";
@@ -39,6 +39,7 @@ function finishStroke(session: DrawingSession) {
 
   session.current = null;
   useStudioStore.getState().addStroke(stroke);
+  session.live?.clearRect(0, 0, session.width, session.height);
 }
 
 function resetHand(session: DrawingSession) {
@@ -91,12 +92,12 @@ function renderFrame(
     const last = stroke.points.at(-1);
     if (!last || Math.hypot(x - last.x * width, y - last.y * height) >= 2) {
       stroke.points.push({ x: x / width, y: y / height });
-      drawSegment(strokes, stroke, width, height);
     }
   }
 
   session.hud = { mode: erasing && !overToolbar ? "ERASING" : drawing ? "DRAWING" : "HOVERING", hand: true };
   live.clearRect(0, 0, width, height);
+  if (session.current) drawStroke(live, session.current, width, height, false);
   live.strokeStyle = erasing && !overToolbar ? session.hot : session.neon;
   live.fillStyle = live.strokeStyle;
   live.lineWidth = 2;
@@ -174,13 +175,23 @@ export function StudioSection() {
 
     function redraw() {
       if (!strokes) return;
-      const { width, height, current } = session;
+      const { width, height } = session;
       redrawAll(strokes, useStudioStore.getState().strokes, width, height);
-      current?.points.forEach((_, index) => drawSegment(strokes, current, width, height, index));
     }
 
     const unsubscribe = useStudioStore.subscribe((state, previous) => {
-      if (state.strokes !== previous.strokes) redraw();
+      if (state.strokes === previous.strokes) return;
+
+      const added = state.strokes.at(-1);
+      if (
+        added &&
+        state.strokes.length === previous.strokes.length + 1 &&
+        previous.strokes.every((stroke, index) => stroke === state.strokes[index])
+      ) {
+        drawStroke(strokes, added, session.width, session.height, true);
+      } else {
+        redraw();
+      }
     });
 
     const observer = new ResizeObserver(([entry]) => {

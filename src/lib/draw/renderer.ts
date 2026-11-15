@@ -1,45 +1,43 @@
-import type { Point } from "../hand/types";
+import { getStroke } from "perfect-freehand";
+
 import type { Stroke } from "../../store/studio";
 
-function midpoint(a: Point, b: Point): Point {
-  return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-}
-
-/** Paints the newest point or completes the curve to the final point. */
-export function drawSegment(
+export function drawStroke(
   ctx: CanvasRenderingContext2D,
   stroke: Stroke,
   w: number,
   h: number,
-  index = stroke.points.length - 1,
-  finish = false,
+  isFinished: boolean,
 ): void {
-  const { points, width, color } = stroke;
-  const point = points[index];
-  if (!point) return;
+  const points = stroke.points.map(({ x, y }) => [x * w, y * h]);
+  const outline = getStroke(points, {
+    size: 10,
+    thinning: 0.6,
+    smoothing: 0.6,
+    streamline: 0.5,
+    simulatePressure: true,
+    start: { taper: 8 },
+    end: { taper: 16 },
+    last: isFinished,
+  });
+  const first = outline[0];
+  const last = outline.at(-1);
+  if (!first || !last) return;
+
+  const path = new Path2D();
+  path.moveTo((last[0] + first[0]) / 2, (last[1] + first[1]) / 2);
+  for (let index = 0; index < outline.length; index++) {
+    const [x, y] = outline[index];
+    const [nextX, nextY] = outline[index + 1] ?? first;
+    path.quadraticCurveTo(x, y, (x + nextX) / 2, (y + nextY) / 2);
+  }
+  path.closePath();
 
   ctx.save();
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  ctx.shadowBlur = 15;
-  ctx.shadowColor = color;
-  ctx.beginPath();
-
-  if (index === 0) {
-    ctx.arc(point.x * w, point.y * h, width / 2, 0, Math.PI * 2);
-    ctx.fill();
-  } else {
-    const previous = points[index - 1];
-    const end = midpoint(previous, point);
-    const start = finish ? end : index === 1 ? previous : midpoint(points[index - 2], previous);
-    ctx.moveTo(start.x * w, start.y * h);
-    if (finish) ctx.lineTo(point.x * w, point.y * h);
-    else ctx.quadraticCurveTo(previous.x * w, previous.y * h, end.x * w, end.y * h);
-    ctx.stroke();
-  }
+  ctx.fillStyle = stroke.color;
+  ctx.shadowBlur = isFinished ? 15 : 0;
+  ctx.shadowColor = isFinished ? stroke.color : "transparent";
+  ctx.fill(path);
   ctx.restore();
 }
 
@@ -47,8 +45,7 @@ export function drawSegment(
 export function redrawAll(ctx: CanvasRenderingContext2D, strokes: readonly Stroke[], w: number, h: number): void {
   ctx.clearRect(0, 0, w, h);
   for (const stroke of strokes) {
-    stroke.points.forEach((_, index) => drawSegment(ctx, stroke, w, h, index));
-    if (stroke.points.length > 1) drawSegment(ctx, stroke, w, h, stroke.points.length - 1, true);
+    drawStroke(ctx, stroke, w, h, true);
   }
 }
 
