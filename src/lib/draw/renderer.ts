@@ -14,7 +14,7 @@ function outlinePath(stroke: Stroke, w: number, h: number, isFinished: boolean):
     size: STROKE_SIZE,
     thinning: 0,
     smoothing: 0.6,
-    streamline: 0.5,
+    streamline: 0.35,
     simulatePressure: false,
     start: { taper: 0 },
     end: { taper: 0 },
