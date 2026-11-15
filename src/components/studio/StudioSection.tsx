@@ -18,7 +18,7 @@ type ActiveStroke = Stroke & { points: Point[] };
 const MAX_JUMP = 0.3;
 /** Points dropped at the end of a stroke, recorded while the fingers were opening. */
 const RELEASE_TRIM = 3;
-/** A final step longer than this fraction of the longer side is a flick as the hand leaves. */
+/** Step threshold for interpolation and release flicks, as a fraction of the longer side. */
 const FLICK_STEP = 0.04;
 const MAX_FLICK_POINTS = 6;
 /** Strokes shorter than this are accidental taps and are discarded. */
@@ -33,9 +33,10 @@ function createDrawingSession() {
     strokes: null as CanvasRenderingContext2D | null,
     live: null as CanvasRenderingContext2D | null,
     current: null as ActiveStroke | null,
+    sampledPointIndices: [] as number[],
     gesture: createGestureState(),
-    smoothX: createOneEuro(1.5, 0.03),
-    smoothY: createOneEuro(1.5, 0.03),
+    smoothX: createOneEuro(2.0, 0.08),
+    smoothY: createOneEuro(2.0, 0.08),
     neon: "",
     hot: "",
     hud: idleHud,
@@ -49,14 +50,18 @@ function finishStroke(session: DrawingSession) {
   if (!stroke) return;
 
   session.current = null;
-  if (stroke.points.length > RELEASE_TRIM + 3) stroke.points.length -= RELEASE_TRIM;
+  const { sampledPointIndices } = session;
+  if (sampledPointIndices.length > RELEASE_TRIM + 3) sampledPointIndices.length -= RELEASE_TRIM;
   const flick = FLICK_STEP * Math.max(session.width, session.height);
-  for (let tail = 0; tail < MAX_FLICK_POINTS && stroke.points.length > MIN_POINTS; tail++) {
-    const previous = stroke.points.at(-2)!;
-    const end = stroke.points.at(-1)!;
+  for (let tail = 0; tail < MAX_FLICK_POINTS && sampledPointIndices.length > MIN_POINTS; tail++) {
+    const previous = stroke.points[sampledPointIndices.at(-2)!]!;
+    const end = stroke.points[sampledPointIndices.at(-1)!]!;
     if (Math.hypot((end.x - previous.x) * session.width, (end.y - previous.y) * session.height) <= flick) break;
-    stroke.points.pop();
+    sampledPointIndices.pop();
   }
+  const sampledPointCount = sampledPointIndices.length;
+  stroke.points.length = (sampledPointIndices.at(-1) ?? -1) + 1;
+  sampledPointIndices.length = 0;
 
   let length = 0;
   for (let index = 1; index < stroke.points.length; index++) {
@@ -64,7 +69,7 @@ function finishStroke(session: DrawingSession) {
     const b = stroke.points[index]!;
     length += Math.hypot((b.x - a.x) * session.width, (b.y - a.y) * session.height);
   }
-  if (stroke.points.length < MIN_POINTS || length < MIN_LENGTH_PX) {
+  if (sampledPointCount < MIN_POINTS || length < MIN_LENGTH_PX) {
     session.live?.clearRect(0, 0, session.width, session.height);
     return;
   }
@@ -121,12 +126,26 @@ function renderFrame(
     const stroke = session.current ??= { id: crypto.randomUUID(), color, width: 6, points: [] };
     const last = stroke.points.at(-1);
     const moved = last ? Math.hypot(x - last.x * width, y - last.y * height) : 0;
+    const longerSide = Math.max(width, height);
 
-    if (last && moved > MAX_JUMP * Math.max(width, height)) {
+    if (last && moved > MAX_JUMP * longerSide) {
       // A tracking glitch, so end this stroke instead of drawing a long line.
       finishStroke(session);
     } else if (!last || moved >= 2) {
-      stroke.points.push({ x: x / width, y: y / height });
+      const point = { x: x / width, y: y / height };
+      const flick = FLICK_STEP * longerSide;
+      if (last && moved > flick) {
+        const extraPoints = Math.min(MAX_FLICK_POINTS, Math.ceil(moved / flick) - 1);
+        for (let index = 1; index <= extraPoints; index++) {
+          const fraction = index / (extraPoints + 1);
+          stroke.points.push({
+            x: last.x + (point.x - last.x) * fraction,
+            y: last.y + (point.y - last.y) * fraction,
+          });
+        }
+      }
+      session.sampledPointIndices.push(stroke.points.length);
+      stroke.points.push(point);
     }
   }
 
