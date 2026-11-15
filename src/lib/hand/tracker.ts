@@ -17,6 +17,10 @@ export async function createHandTracker(): Promise<HandTracker> {
     baseOptions: { modelAssetPath, delegate },
     runningMode: "VIDEO",
     numHands: 1,
+    // Lower values maintain tracking during fast motion at the cost of more false positives.
+    minHandDetectionConfidence: 0.4,
+    minHandPresenceConfidence: 0.4,
+    minTrackingConfidence: 0.4,
   });
 
   let landmarker: Awaited<ReturnType<typeof create>>;
