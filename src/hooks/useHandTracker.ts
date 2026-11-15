@@ -85,6 +85,7 @@ export function useHandTracker(
       return;
     }
 
+    const useVideoFrames = typeof video.requestVideoFrameCallback === "function";
     let cancelled = false;
     let stream: MediaStream | null = null;
     let tracker: Awaited<ReturnType<typeof createHandTracker>> | null = null;
@@ -94,7 +95,10 @@ export function useHandTracker(
     let frames = 0;
 
     const pause = () => {
-      if (frameId !== null) cancelAnimationFrame(frameId);
+      if (frameId !== null) {
+        if (useVideoFrames) video.cancelVideoFrameCallback(frameId);
+        else cancelAnimationFrame(frameId);
+      }
       frameId = null;
     };
 
@@ -113,14 +117,13 @@ export function useHandTracker(
       publish({ status: "error", fps: 0, error: cameraError(error) });
     };
 
-    const render = () => {
+    const render = (timestamp: number) => {
       frameId = null;
       if (cancelled || document.hidden || !tracker) return;
 
-      const timestamp = performance.now();
       const { currentTime, videoWidth, videoHeight } = video;
       try {
-        if (video.readyState >= 2 && videoWidth && videoHeight && currentTime !== lastVideoTime) {
+        if (video.readyState >= 2 && videoWidth && videoHeight && (useVideoFrames || currentTime !== lastVideoTime)) {
           lastVideoTime = currentTime;
           const landmarks = tracker.detect(video, timestamp);
           frames++;
@@ -138,7 +141,13 @@ export function useHandTracker(
         sampleStart = timestamp;
         frames = 0;
       }
-      if (!document.hidden) frameId = requestAnimationFrame(render);
+      if (!document.hidden) scheduleFrame();
+    };
+
+    const scheduleFrame = () => {
+      frameId = useVideoFrames
+        ? video.requestVideoFrameCallback(render)
+        : requestAnimationFrame(() => render(performance.now()));
     };
 
     const syncVisibility = () => {
@@ -148,7 +157,7 @@ export function useHandTracker(
       if (document.hidden) {
         publish({ status: "running", fps: 0, error: null });
       } else {
-        frameId = requestAnimationFrame(render);
+        scheduleFrame();
       }
     };
 
@@ -157,7 +166,12 @@ export function useHandTracker(
 
     try {
       const camera = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: {
+          facingMode: "user",
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 60, min: 30 },
+        },
         audio: false,
       });
       if (cancelled) {
