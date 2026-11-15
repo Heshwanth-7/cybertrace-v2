@@ -4,15 +4,28 @@ import { useDwellSelect } from "@/hooks/useDwellSelect";
 import { useHandTracker, type HandFrame } from "@/hooks/useHandTracker";
 import { exportPng } from "@/lib/draw/export";
 import { drawStroke, redrawAll, strokeHitsPoint } from "@/lib/draw/renderer";
-import { createGestureState, createOneEuro, toScreen, updateGesture } from "@/lib/hand/hand";
+import { createGestureState, createOneEuro, expandReach, pinchPoint, toScreen, updateGesture } from "@/lib/hand/hand";
 import type { Point } from "@/lib/hand/types";
-import { useStudioStore, type Stroke } from "@/store/studio";
+import { useStudioStore, type Stroke, type StrokePoint } from "@/store/studio";
 
 import { MagneticButton } from "../ui/MagneticButton";
 import { Toolbar } from "./Toolbar";
 
 type Mode = "HOVERING" | "DRAWING" | "ERASING";
-type ActiveStroke = Stroke & { points: Point[] };
+type ActiveStroke = Stroke & { points: StrokePoint[] };
+
+/** Fraction of the camera view that maps to the whole drawing area. */
+const REACH = 0.85;
+/** Speed in px/ms at which the line is about 37% of the way from thick to thin. */
+const SPEED_SCALE = 0.9;
+const MIN_PRESSURE = 0.18;
+/** Smoothing for speed and pressure, from 0 (frozen) to 1 (no smoothing). */
+const SPEED_EASE = 0.3;
+const PRESSURE_EASE = 0.25;
+/** Largest believable move in one frame, as a fraction of the longer side. */
+const MAX_JUMP = 0.3;
+/** Points dropped at the end of a stroke, recorded while the fingers were opening. */
+const RELEASE_TRIM = 2;
 const idleHud = { mode: "HOVERING" as Mode, hand: false };
 
 function createDrawingSession() {
@@ -23,8 +36,11 @@ function createDrawingSession() {
     live: null as CanvasRenderingContext2D | null,
     current: null as ActiveStroke | null,
     gesture: createGestureState(),
-    smoothX: createOneEuro(),
-    smoothY: createOneEuro(),
+    smoothX: createOneEuro(1.5, 0.03),
+    smoothY: createOneEuro(1.5, 0.03),
+    lastTime: 0,
+    speed: 0,
+    pressure: 1,
     neon: "",
     hot: "",
     hud: idleHud,
@@ -38,6 +54,9 @@ function finishStroke(session: DrawingSession) {
   if (!stroke) return;
 
   session.current = null;
+  if (stroke.points.length > RELEASE_TRIM + 3) stroke.points.length -= RELEASE_TRIM;
+  session.speed = 0;
+  session.pressure = 1;
   useStudioStore.getState().addStroke(stroke);
   session.live?.clearRect(0, 0, session.width, session.height);
 }
@@ -68,7 +87,12 @@ function renderFrame(
     return;
   }
 
-  const mapped = toScreen(tip, videoWidth, videoHeight, width, height);
+  const mapped = expandReach(
+    toScreen(pinchPoint(landmarks), videoWidth, videoHeight, width, height),
+    width,
+    height,
+    REACH,
+  );
   const x = session.smoothX.filter(mapped.x, timestamp);
   const y = session.smoothY.filter(mapped.y, timestamp);
   session.gesture = updateGesture(session.gesture, landmarks, videoWidth / videoHeight);
@@ -90,11 +114,26 @@ function renderFrame(
   } else if (drawing) {
     const stroke = session.current ??= { id: crypto.randomUUID(), color, width: 6, points: [] };
     const last = stroke.points.at(-1);
-    if (!last || Math.hypot(x - last.x * width, y - last.y * height) >= 2) {
-      stroke.points.push({ x: x / width, y: y / height });
+    const moved = last ? Math.hypot(x - last.x * width, y - last.y * height) : 0;
+    const elapsed = timestamp - session.lastTime;
+
+    if (last && moved > MAX_JUMP * Math.max(width, height)) {
+      // A tracking glitch, so end this stroke instead of drawing a long line.
+      finishStroke(session);
+    } else {
+      if (last && elapsed > 0) {
+        // Slow movement gives a thick line and fast movement a thin one.
+        session.speed += SPEED_EASE * (moved / elapsed - session.speed);
+        const target = MIN_PRESSURE + (1 - MIN_PRESSURE) * Math.exp(-session.speed / SPEED_SCALE);
+        session.pressure += PRESSURE_EASE * (target - session.pressure);
+      }
+      if (!last || moved >= 2) {
+        stroke.points.push({ x: x / width, y: y / height, p: session.pressure });
+      }
     }
   }
 
+  session.lastTime = timestamp;
   session.hud = { mode: erasing && !overToolbar ? "ERASING" : drawing ? "DRAWING" : "HOVERING", hand: true };
   live.clearRect(0, 0, width, height);
   if (session.current) drawStroke(live, session.current, width, height, false);

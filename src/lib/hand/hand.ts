@@ -105,6 +105,31 @@ export function toScreen(lm: Point, videoW: number, videoH: number, boxW: number
 }
 
 /**
+ * Returns the midpoint between the thumb and index tips.
+ * It moves far less than the index tip while the fingers close or open,
+ * which removes the hooks at the start and end of strokes.
+ */
+export function pinchPoint(lm: readonly Point[]): Point {
+  const thumb = lm[4]!;
+  const index = lm[8]!;
+  return { x: (thumb.x + index.x) / 2, y: (thumb.y + index.y) / 2 };
+}
+
+/**
+ * Stretches the central part of the screen position to the whole drawing area,
+ * so the edges can be reached without leaving the camera view.
+ * @param point Position in box pixels.
+ * @param boxW Display box width.
+ * @param boxH Display box height.
+ * @param reach Fraction of the box that maps to the full area, from 0 to 1.
+ */
+export function expandReach(point: Point, boxW: number, boxH: number, reach: number): Point {
+  const stretch = (value: number, size: number) =>
+    Math.min(size, Math.max(0, size / 2 + (value - size / 2) / reach));
+  return { x: stretch(point.x, boxW), y: stretch(point.y, boxH) };
+}
+
+/**
  * Creates an adaptive low-pass filter for one axis.
  * @param [minCutoff=1.0] Minimum signal cutoff in Hz.
  * @param [beta=0.02] Increase in signal cutoff per unit of filtered speed.

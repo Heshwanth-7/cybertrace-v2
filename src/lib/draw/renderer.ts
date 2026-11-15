@@ -2,27 +2,25 @@ import { getStroke } from "perfect-freehand";
 
 import type { Stroke } from "../../store/studio";
 
-export function drawStroke(
-  ctx: CanvasRenderingContext2D,
-  stroke: Stroke,
-  w: number,
-  h: number,
-  isFinished: boolean,
-): void {
-  const points = stroke.points.map(({ x, y }) => [x * w, y * h]);
+/** Pressure used when a saved stroke has no pressure data. */
+const DEFAULT_PRESSURE = 0.5;
+
+function outlinePath(stroke: Stroke, w: number, h: number, size: number, isFinished: boolean): Path2D | null {
+  const points = stroke.points.map(({ x, y, p }) => [x * w, y * h, p ?? DEFAULT_PRESSURE]);
+  const hasPressure = stroke.points.some((point) => point.p !== undefined);
   const outline = getStroke(points, {
-    size: 10,
-    thinning: 0.6,
+    size,
+    thinning: hasPressure ? 0.75 : 0.6,
     smoothing: 0.6,
     streamline: 0.5,
-    simulatePressure: true,
-    start: { taper: 8 },
-    end: { taper: 16 },
+    simulatePressure: !hasPressure,
+    start: { taper: 10 },
+    end: { taper: 24 },
     last: isFinished,
   });
   const first = outline[0];
   const last = outline.at(-1);
-  if (!first || !last) return;
+  if (!first || !last) return null;
 
   const path = new Path2D();
   path.moveTo((last[0] + first[0]) / 2, (last[1] + first[1]) / 2);
@@ -32,12 +30,41 @@ export function drawStroke(
     path.quadraticCurveTo(x, y, (x + nextX) / 2, (y + nextY) / 2);
   }
   path.closePath();
+  return path;
+}
+
+export function drawStroke(
+  ctx: CanvasRenderingContext2D,
+  stroke: Stroke,
+  w: number,
+  h: number,
+  isFinished: boolean,
+): void {
+  const body = outlinePath(stroke, w, h, 14, isFinished);
+  if (!body) return;
 
   ctx.save();
   ctx.fillStyle = stroke.color;
-  ctx.shadowBlur = isFinished ? 15 : 0;
-  ctx.shadowColor = isFinished ? stroke.color : "transparent";
-  ctx.fill(path);
+  if (isFinished) {
+    // Wide halo first, so thick and thin parts both glow.
+    ctx.shadowBlur = 22;
+    ctx.shadowColor = stroke.color;
+    ctx.fill(body);
+    ctx.shadowBlur = 8;
+    ctx.fill(body);
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+
+    // Bright core on top gives the line depth and keeps hairlines visible.
+    const core = outlinePath(stroke, w, h, 5, true);
+    if (core) {
+      ctx.globalAlpha = 0.7;
+      ctx.fillStyle = "white";
+      ctx.fill(core);
+    }
+  } else {
+    ctx.fill(body);
+  }
   ctx.restore();
 }
 
